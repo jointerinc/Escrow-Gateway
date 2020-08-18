@@ -20,24 +20,31 @@ contract Gateway is Ownable {
     IERC20Token public tokenContract;
     IEscrow public escrowContract;
     address public admin;
+    address public jointerVoting;   //Jointer voting contract can block specific Channel or Wallet
 
     struct Wallet {
         string name;
         address payable wallet;
+        bool isBlocked;  // Block wallet transfer tokens to.
     }
 
     struct Channel {
         string name;    // name of channel
         uint256 amount; // Amount of token received from Escrow
         uint256 spend;  // Amount of token spend from channel (sent to Market, SmartSwap, etc.)
+        bool isBlocked;  // Block entire channel to transfer tokens to any wallets.
         Wallet[] wallets;   // list of wallets where allowed to transfer (exchanges wallets, Bancor, etc).
+        
     }
 
     Channel[] channels;     // list of liquidity channels
 
     event SetWallet(uint256 indexed channelId, uint256 walletId, address wallet, string name);
+    event AddChannel(uint256 indexed channelId, string name);
     event ReceivedETH(address indexed from, uint256 value);
     event TransferTokens(uint256 indexed channelId, address indexed to, uint256 value, string walletName);
+    event BlockWallet(uint256 indexed channelId, uint256 walletId, bool isBlock);
+    event BlockChannel(uint256 indexed channelId, bool isBlock);
 
     /**
      * @dev Throws if called by any account other than the admin.
@@ -96,6 +103,13 @@ contract Gateway is Ownable {
         admin = _admin;
     }
 
+    function addChannell(string calldata name) external onlyOwner {
+        uint256 channelId = channels.length;
+        channels.push();
+        channels[channelId].name = name;
+        emit AddChannel(channelId, name);
+    }
+
     function getChannelsNumber() external view returns(uint256) {
         return channels.length;
     }
@@ -116,7 +130,7 @@ contract Gateway is Ownable {
     function addWallet(uint256 channelId, string memory name, address payable wallet) external onlyOwner {
         require(wallet != address(0),"Zero address");
         uint256 walletId = channels[channelId].wallets.length;
-        channels[channelId].wallets.push(Wallet(name, wallet));
+        channels[channelId].wallets.push(Wallet(name, wallet, false));
         emit SetWallet(channelId, walletId, wallet, name);
     }
 
@@ -147,6 +161,20 @@ contract Gateway is Ownable {
         tokenContract.transfer(to, value);
         channels[channelId].spend = safeAdd(channels[channelId].spend, value);
         emit TransferTokens(channelId, to, value, channels[channelId].wallets[walletId].name);
+    }
+
+    // Block selected wallet transfer to.
+    function blockWallet(uint256 channelId, uint256 walletId, bool isBlock) external {
+        require(msg.sender == jointerVoting, "Only JNTR voting allowed");
+        channels[channelId].wallets[walletId].isBlocked = isBlock;
+        emit BlockWallet(channelId, walletId, isBlock);
+    }
+
+    // Block selected channel transfer to any wallet.
+    function blockChannel(uint256 channelId, bool isBlock) external {
+        require(msg.sender == jointerVoting, "Only JNTR voting allowed");
+        channels[channelId].isBlocked = isBlock;
+        emit BlockChannel(channelId, isBlock);
     }
 
     /**

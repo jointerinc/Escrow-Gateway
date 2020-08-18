@@ -85,11 +85,13 @@ contract Escrow is AuctionRegistery {
     uint256 internal constant BUYBACK = 1 << 251;
     uint256 internal constant SMARTSWAP_P2P = 1 << 252;
     IERC20Token public tokenContract;
+    address public governanceContract;
     address payable public companyWallet;
     address payable public gatewayContract;
 
     struct Order {
         address payable seller;
+        address payable buyer;
         uint256 sellValue;  // how many token sell
         address wantToken;  // which token want to receive
         uint256 wantValue;  // the value want to receive
@@ -97,7 +99,7 @@ contract Escrow is AuctionRegistery {
     }
 
     Order[] orders;
-
+    
     struct Unpaid {
         uint256 soldValue;
         uint256 value;
@@ -120,6 +122,7 @@ contract Escrow is AuctionRegistery {
     mapping(uint256 => uint256) public totalOnSale;     // total token amount on sale by channel
     mapping(address => mapping(uint256 => uint256)) public onSale;  // How many tokens the wallet want to sell (Wallet => Channel => Value)
 
+    uint256 public totalSupply;
     mapping(address => uint256) balances;
 
     event Transfer(address indexed from, address indexed to, uint256 value);
@@ -128,7 +131,7 @@ contract Escrow is AuctionRegistery {
     event PutOnSale(address indexed from, uint256 value);
     event RemoveFromSale(address indexed from, uint256 value);
     event PaymentFromGateway(uint256 indexed channelId, address indexed token, uint256 value, uint256 soldValue);
-    event SellOrder(address indexed from, uint256 value, uint256 indexed orderId);
+    event SellOrder(address indexed seller, address indexed buyer, uint256 value, address wantToken, uint256 wantValue, uint256 indexed orderId);
 
     /**
      * @dev Throws if called by any account other than the companyWallet.
@@ -173,20 +176,30 @@ contract Escrow is AuctionRegistery {
 
     /**
      * @dev Set token contract address.
-     * @param token The address of token contract.
+     * @param newAddress The address of token contract.
      */
-    function setTokenContract(IERC20Token token) external onlyOwner {
-        require(token != IERC20Token(0) && tokenContract == IERC20Token(0),"Change address not allowed");
-        tokenContract = token;
+    function setTokenContract(IERC20Token newAddress) external onlyOwner {
+        require(newAddress != IERC20Token(0) && tokenContract == IERC20Token(0),"Change address not allowed");
+        tokenContract = newAddress;
     }
 
     /**
      * @dev Set gateway contract address
-     * @param gateway The address of gateway contract.
+     * @param newAddress The address of gateway contract.
      */
-    function setGatewayContract(address payable gateway) external onlyOwner {
-        require(gateway != address(0),"Zero address");
-        gatewayContract = gateway;
+    function setGatewayContract(address payable newAddress) external onlyOwner {
+        require(newAddress != address(0),"Zero address");
+        gatewayContract = newAddress;
+    }
+
+    /**
+     * @dev Set governance (the main governance for public communities) contract address.
+     * Uses to add addresses of escrowed (pre-minted) wallets to the isInEscrow list in Governance contract.
+     * @param newAddress The address of governance contract.
+     */
+    function setGovernanceContract(address payable newAddress) external onlyOwner {
+        require(newAddress != address(0),"Zero address");
+        governanceContract = newAddress;
     }
 
     /**
@@ -198,10 +211,11 @@ contract Escrow is AuctionRegistery {
         require(balance > 0, "No pre-minted tokens");
         balances[companyWallet] = balance; //Transfer all pre-minted tokens to company wallet.
         _addPremintedWallet(companyWallet, 4); // add company wallet to the company group.
+        totalSupply = safeAdd(totalSupply, balance);
         emit Transfer(address(0), companyWallet, balance);
     }
 
-    function setGroupRestriction(uint256 groupId, uint256 restriction) external onlyCompany {
+    function setGroupRestriction(uint256 groupId, uint256 restriction) external onlyOwner {
         groups[groupId].restriction = restriction;
     }
 
@@ -230,7 +244,7 @@ contract Escrow is AuctionRegistery {
     }
     
     // Move user from one group to another
-    function moveToGroup(address wallet, uint256 toGroup) external onlyCompany {
+    function moveToGroup(address wallet, uint256 toGroup) external onlyOwner {
         uint256 from = _getGroupId(wallet);
         require(from != toGroup, "Already in this group");
         inGroup[wallet] = toGroup + 1;  // change wallet's group id (1-based)
@@ -252,14 +266,14 @@ contract Escrow is AuctionRegistery {
         }
     }
 
-    function addGroup(uint256 rate) external onlyCompany {
+    function addGroup(uint256 rate) external onlyOwner {
         uint256 groupId = groups.length;
         groups.push();
         groups[groupId].rate = rate;
         emit GroupRate(groupId, rate);
     }
 
-    function changeGroupRate(uint256 groupId, uint256 rate) external onlyCompany {
+    function changeGroupRate(uint256 groupId, uint256 rate) external onlyOwner {
         groups[groupId].rate = rate;
         emit GroupRate(groupId, rate);
     }
@@ -286,6 +300,7 @@ contract Escrow is AuctionRegistery {
     function depositFee(uint256 value) external {
         require(tokenContract.transferFrom(msg.sender, address(this), value),"Transfer failed");
         balances[companyWallet] = safeAdd(balances[companyWallet], value);
+        totalSupply = safeAdd(totalSupply, value);
         emit Transfer(msg.sender, address(this), value);
     }
     
@@ -315,6 +330,7 @@ contract Escrow is AuctionRegistery {
         require(groups[groupId].restriction & BUYBACK > 0, "BuyBack disallowed");
         balances[msg.sender] = safeSub(balances[msg.sender], value);
         tokenContract.approve(address(liquidityContract), value);
+        totalSupply = safeSub(totalSupply, value);
         require(liquidityContract.redemptionFromEscrow(path, value, msg.sender), "Redemption failed");
     }
 
@@ -324,6 +340,7 @@ contract Escrow is AuctionRegistery {
         uint256 groupId = _getGroupId(msg.sender);
         require(groups[groupId].restriction & SMARTSWAP_P2P > 0, "SmartSwap P2P disallowed");
         balances[msg.sender] = safeSub(balances[msg.sender], value);
+        totalSupply = safeSub(totalSupply, value);
         tokenContract.approve(address(smartswapContract), value);
         smartswapContract.sendTokenFormEscrow(address(tokenContract), value, msg.sender);
     }
@@ -332,44 +349,69 @@ contract Escrow is AuctionRegistery {
     function canceledP2P(address user, uint256 value) external returns(bool) {
         require(tokenContract.transferFrom(msg.sender, address(this), value));
         balances[user] = safeAdd(balances[user], value);
+        totalSupply = safeAdd(totalSupply, value);
         return true;
     }
 
     // Sell tokens to other user (inside Escrow contract).
-    function sellToken(uint256 sellValue, address wantToken, uint256 wantValue) external {
+    function sellToken(uint256 sellValue, address wantToken, uint256 wantValue, address payable buyer) external {
         require(balances[msg.sender] >= sellValue, "Not enough balance");
         balances[msg.sender] = safeSub(balances[msg.sender], sellValue);
         uint256 orderId = orders.length;
-        orders.push(Order(msg.sender, sellValue, wantToken, wantValue, 1));
-        emit SellOrder(msg.sender, sellValue, orderId);
+        orders.push(Order(msg.sender, buyer, sellValue, wantToken, wantValue, 1));
+        emit SellOrder(msg.sender, buyer, sellValue, wantToken, wantValue, orderId);
     }
 
     // cancel sell order
     function cancelOrder(uint256 orderId) external {
         Order storage o = orders[orderId];
-        require(msg.sender == o.seller, "Only seller can cancel");
+        require(msg.sender == o.seller || msg.sender == o.buyer, "You can't cancel");
         require(o.status == 1, "Wrong order");
-        balances[msg.sender] = safeAdd(balances[msg.sender], o.sellValue);
+        balances[o.seller] = safeAdd(balances[o.seller], o.sellValue);
         o.status = 3;   // cancel
     }
 
     // get order info. Status 1 - created, 2 - completed, 3 - canceled.
     function getOrder(uint256 orderId) external view returns(
         address seller,
+        address buyer,
         uint256 sellValue,
         address wantToken,
         uint256 wantValue,
         uint256 status)
     {
         Order storage o = orders[orderId];
-        return (o.seller, o.sellValue, o.wantToken, o.wantValue, o.status);
+        return (o.seller, o.buyer, o.sellValue, o.wantToken, o.wantValue, o.status);
+    }
+
+    function getOrdersNumber() external view returns(uint256 number) {
+        return orders.length;
+    }
+
+    function getLastAvailableOrder() external view returns(
+        address seller,
+        address buyer,
+        uint256 sellValue,
+        address wantToken,
+        uint256 wantValue)
+    {
+        uint len = orders.length;
+        while(len > 0) {
+            Order storage o = orders[len-1];
+            if (o.status == 1 && (o.seller == msg.sender || o.buyer == msg.sender)) {
+                return (o.seller, o.buyer, o.sellValue, o.wantToken, o.wantValue);
+            }
+            len--;
+        }
+        return(address(0),address(0),0,address(0),0);
     }
 
     // buy selected order (ID). If buy using ERC20 token, the amount should be approved for Escrow contract.
     function buyOrder(uint256 orderId) external payable {
         require(inGroup[msg.sender] != 0, "Wallet not added");
         Order storage o = orders[orderId];
-        require(o.status == 1, "Wrong order");
+        require(msg.sender == o.buyer, "Wrong buyer");
+        require(o.status == 1, "Wrong order status");
         if (o.wantToken == address(0)) {
             require(msg.value >= o.wantValue, "Not enough value");
             o.seller.transfer(msg.value);
@@ -388,6 +430,7 @@ contract Escrow is AuctionRegistery {
         require(groups[groupId].restriction & (1 << channelId) > 0, "Liquidity channel disallowed");
         require(groups[groupId].soldUnpaid[channelId] == 0, "There is unpaid giveaways");
         balances[msg.sender] = safeSub(balances[msg.sender], value);
+        totalSupply = safeSub(totalSupply, value);
         groups[groupId].addressesOnChannel[channelId].add(msg.sender);  // the case that wallet already in list, checks in add function
         onSale[msg.sender][channelId] = safeAdd(onSale[msg.sender][channelId], value);
         totalOnSale[channelId] = safeAdd(totalOnSale[channelId], value);
@@ -407,6 +450,7 @@ contract Escrow is AuctionRegistery {
         onSale[msg.sender][channelId] = safeSub(onSale[msg.sender][channelId], value);
         totalOnSale[channelId] = safeSub(totalOnSale[channelId], value);
         balances[msg.sender] = safeAdd(balances[msg.sender], value);
+        totalSupply = safeAdd(totalSupply, value);
         groups[groupId].onSale[channelId] = safeSub(groups[groupId].onSale[channelId], value);
 
         if (onSale[msg.sender][channelId] == 0) {
@@ -568,9 +612,7 @@ contract Escrow is AuctionRegistery {
      */
     function _addPremintedWallet(address wallet, uint256 groupId) internal {
         require(groupId < groups.length, "Wrong group");
-        address gov = IGovernanceProxy(owner()).governance();
-        require(gov != address(0), "Zero address");
-        IGovernance(gov).addPremintedWallet(wallet);
+        IGovernance(governanceContract).addPremintedWallet(wallet);
         inGroup[wallet] = groupId + 1;    // groupId + 1 (0 - mean that wallet not added)
         groups[groupId].wallets.add(wallet);  // add to the group
     }
