@@ -103,7 +103,7 @@ contract Gateway is Ownable {
         admin = _admin;
     }
 
-    function addChannell(string calldata name) external onlyOwner {
+    function addChannel(string calldata name) external onlyOwner {
         uint256 channelId = channels.length;
         channels.push();
         channels[channelId].name = name;
