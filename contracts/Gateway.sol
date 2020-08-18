@@ -95,6 +95,15 @@ contract Gateway is Ownable {
     }
 
     /**
+     * @dev Set Jointer Voting (Escrowed) contract address
+     * @param newAddress The address of escrow contract.
+     */
+    function setJointerVotingContract(address payable newAddress) external onlyOwner {
+        require(newAddress != address(0),"Zero address");
+        jointerVoting = newAddress;
+    }
+
+    /**
      * @dev Set gateway contract address
      * @param _admin The addresses of gateway contract.
      */
