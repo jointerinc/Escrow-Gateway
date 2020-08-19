@@ -411,6 +411,7 @@ contract Escrow is AuctionRegistery {
     }
 
     function getLastAvailableOrder() external view returns(
+        uint256 orderId,
         address seller,
         address buyer,
         uint256 sellValue,
@@ -421,11 +422,11 @@ contract Escrow is AuctionRegistery {
         while(len > 0) {
             Order storage o = orders[len-1];
             if (o.status == 1 && (o.seller == msg.sender || o.buyer == msg.sender)) {
-                return (o.seller, o.buyer, o.sellValue, o.wantToken, o.wantValue);
+                return (len-1,o.seller, o.buyer, o.sellValue, o.wantToken, o.wantValue);
             }
             len--;
         }
-        return(address(0),address(0),0,address(0),0);
+        return(0,address(0),address(0),0,address(0),0); // No orders available
     }
 
     // buy selected order (ID). If buy using ERC20 token, the amount should be approved for Escrow contract.
@@ -612,7 +613,7 @@ contract Escrow is AuctionRegistery {
         require(balancesETH[msg.sender] > 0, "No ETH");
         msg.sender.transfer(balancesETH[msg.sender]);
     }
-    
+
     /**
      * @dev transfer token for a specified address into Escrow contract
      * @param to The address to transfer to.
