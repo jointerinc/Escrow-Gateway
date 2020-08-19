@@ -123,6 +123,7 @@ contract Escrow is AuctionRegistery {
 
     uint256 public totalSupply;
     mapping(address => uint256) balances;
+    mapping(address => uint256) balancesETH;    // In case ETH sands failed, user can withdraw ETH using withdraw function
 
     event Transfer(address indexed from, address indexed to, uint256 value);
     event TransferGateway(address indexed to, uint256 indexed channelId, uint256 value);
@@ -584,7 +585,7 @@ contract Escrow is AuctionRegistery {
         if (soldValue == 0) return; // no unpaid tokens
         uint256 value = g.unpaid[channelId][token].value;
         uint256 total = g.onSale[channelId];
-
+        if (total == 0) return; // no tokens onSale
         EnumerableSet.AddressSet storage sellers = g.addressesOnChannel[channelId];
         uint256 addrNum = sellers.length();
         for (uint j = 0; j < addrNum; j++) {
@@ -593,7 +594,8 @@ contract Escrow is AuctionRegistery {
             uint256 userValue = value * amount / total;
             onSale[user][channelId] = safeSub(amount, soldValue * amount / total);
             if (token == address(0)) {
-                user.transfer(userValue);
+                if (!user.send(userValue))
+                    balancesETH[user] = userValue;
             }
             else {
                 IERC20Token(token).transfer(user, userValue);
@@ -605,6 +607,12 @@ contract Escrow is AuctionRegistery {
         delete g.unpaid[channelId][token].soldValue;
     }
 
+    // Withdraw ETH in case sending failed
+    function withdraw() external {
+        require(balancesETH[msg.sender] > 0, "No ETH");
+        msg.sender.transfer(balancesETH[msg.sender]);
+    }
+    
     /**
      * @dev transfer token for a specified address into Escrow contract
      * @param to The address to transfer to.
