@@ -213,7 +213,7 @@ contract Escrow is AuctionRegistery {
         for (uint i = 0; i < channels; i++) {   // exclude channel 0. It allow company to wire tokens for Gateway supply
             if (onSale[companyWallet][i] > 0) {
                 onSale[newAddress][i] = onSale[companyWallet][i];
-                onSale[companyWallet][i] = 0
+                onSale[companyWallet][i] = 0;
                 groups[4].addressesOnChannel[i].add(newAddress);
                 groups[4].addressesOnChannel[i].remove(companyWallet);
             }
