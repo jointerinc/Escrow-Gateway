@@ -5,8 +5,7 @@ pragma solidity ^0.6.9;
 // replace https://github.com/jointerinc/jointer-token/blob/0c91e462b2efd61e1541b6f6c5de27d4e6ea53fc/contracts/Auction/Auction.sol#L911-L916
 // with approve Escrow contract to transfer and call depositFee(uint256 value) in Escrow contract.
 
-// GovernanceProxy and Governance smart contract should be deployed at first.
-// After deploy and setup tokenContract and gatewayContract addresses need to change the Owner address to the GovernanceProxy address.
+// After deploy and setup tokenContract and gatewayContract addresses need to change the Owner address to the GovernanceProxy (Escrowed) address.
 import "./Ownable.sol";
 import "./EnumerableSet.sol";
 
@@ -85,7 +84,7 @@ contract Escrow is AuctionRegistery {
     uint256 internal constant BUYBACK = 1 << 251;
     uint256 internal constant SMARTSWAP_P2P = 1 << 252;
     IERC20Token public tokenContract;
-    address public governanceContract;
+    address public governanceContract;  // public Governance contract address
     address payable public companyWallet;
     address payable public gatewayContract;
 
@@ -132,6 +131,7 @@ contract Escrow is AuctionRegistery {
     event RemoveFromSale(address indexed from, uint256 value);
     event PaymentFromGateway(uint256 indexed channelId, address indexed token, uint256 value, uint256 soldValue);
     event SellOrder(address indexed seller, address indexed buyer, uint256 value, address wantToken, uint256 wantValue, uint256 indexed orderId);
+    event ReceivedETH(address indexed from, uint256 value);
 
     /**
      * @dev Throws if called by any account other than the companyWallet.
@@ -163,14 +163,14 @@ contract Escrow is AuctionRegistery {
 
     // Safe Math subtract function
     function safeSub(uint256 a, uint256 b) internal pure returns (uint256) {
-        assert(b <= a);
+        require(b <= a, "SafeMath: subtraction overflow");
         return a - b;
     }
 
     // Safe Math add function
     function safeAdd(uint256 a, uint256 b) internal pure returns (uint256) {
         uint256 c = a + b;
-        assert(c >= a);
+        require(c >= a, "SafeMath: addition overflow");
         return c;
     }
 
@@ -201,6 +201,27 @@ contract Escrow is AuctionRegistery {
         require(newAddress != address(0),"Zero address");
         governanceContract = newAddress;
     }
+
+    function updateCompanyAddress(address payable newAddress) external onlyCompany {
+        require(newAddress != address(0),"Zero address");
+        balances[newAddress] = balances[companyWallet];
+        groups[4].wallets.remove(companyWallet);    // remove from company group
+        inGroup[companyWallet] = 0;
+        balances[companyWallet] = 0;
+        // request number of channels from Gateway
+        uint channels = _getChannelsNumber();
+        for (uint i = 0; i < channels; i++) {   // exclude channel 0. It allow company to wire tokens for Gateway supply
+            if (onSale[companyWallet][i] > 0) {
+                onSale[newAddress][i] = onSale[companyWallet][i];
+                onSale[companyWallet][i] = 0
+                groups[4].addressesOnChannel[i].add(newAddress);
+                groups[4].addressesOnChannel[i].remove(companyWallet);
+            }
+        }
+        _addPremintedWallet(newAddress, 4); // add company wallet to the company group.
+        companyWallet = newAddress;
+    }
+
 
     /**
      * @dev Add all pre-minted tokens to the company wallet.
@@ -347,7 +368,7 @@ contract Escrow is AuctionRegistery {
 
     // Receive token from SmartSwap P2P in case order canceled. Called from SmartSwap P2P contract
     function canceledP2P(address user, uint256 value) external returns(bool) {
-        require(tokenContract.transferFrom(msg.sender, address(this), value));
+        require(tokenContract.transferFrom(msg.sender, address(this), value),"Cancel P2P failed");
         balances[user] = safeAdd(balances[user], value);
         totalSupply = safeAdd(totalSupply, value);
         return true;
@@ -465,7 +486,7 @@ contract Escrow is AuctionRegistery {
         if(totalOnSale[channelId] < value)
             send = totalOnSale[channelId];
         totalOnSale[channelId] = safeSub(totalOnSale[channelId], send);
-        require(tokenContract.transfer(gatewayContract, send),"Transfer Error");
+        tokenContract.approve(gatewayContract, send);
         emit TransferGateway(gatewayContract, channelId, send);
     }
 
@@ -619,5 +640,10 @@ contract Escrow is AuctionRegistery {
 
     function _getChannelsNumber() internal view returns (uint256 channelsNumber) {
         return IGateway(gatewayContract).getChannelsNumber();
+    }
+
+    // accept ETH
+    receive() external payable {
+        emit ReceivedETH(msg.sender, msg.value);
     }
 }
