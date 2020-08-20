@@ -105,6 +105,27 @@ contract ChannelContract is Ownable, SafeMath {
         emit TransferTokens(address(this), to, value, wallets[walletId].name);
     }
 
+
+    // transfer tokens to selected wallet (ex. Exchange wallet)
+    function approveTokens(uint256 walletId, uint256 value) external onlyOwner {
+        require(totalSupply() >= value, "Not enough tokens");
+        address to = wallets[walletId].wallet;
+        require(to != address(0), "Wallet removed");
+        spent = safeAdd(spent, value); 
+        tokenContract.approve(to, value);
+        emit TransferTokens(address(this), to, value, wallets[walletId].name);
+    }
+
+    /**
+     * @dev Trigger arbitrary function on selected wallet address.
+     * @param walletId The wallet to call
+     * @param params encoded params
+     */
+    function trigger(uint256 walletId, bytes calldata params) external onlyOwner {
+        address to = wallets[walletId].wallet;
+        to.call(params);
+    }
+
     // Gateway transfer token to Escrow
     function returnToEscrow(uint256 value) external onlyOwner {
         require(totalSupply() >= value, "Not enough tokens");
@@ -273,6 +294,21 @@ contract Gateway is Ownable, SafeMath {
     // transfer tokens from Channel to selected wallet (ex. Exchange wallet)
     function transferTokens(uint256 channelId, uint256 walletId, uint256 value) external onlyAdmin {
         channels[channelId].channel.transferTokens(walletId, value);
+    }
+
+    // approve tokens from Channel to selected wallet (ex. Exchange wallet)
+    function approveTokens(uint256 channelId, uint256 walletId, uint256 value) external onlyAdmin {
+        channels[channelId].channel.approveTokens(walletId, value);
+    }
+
+    /**
+     * @dev Trigger arbitrary function on selected wallet address.
+     * @param channelId The channel which have to call
+     * @param walletId The wallet to call
+     * @param params encoded params
+     */
+    function trigger(uint256 channelId, uint256 walletId, bytes calldata params) external onlyAdmin {
+        channels[channelId].channel.trigger(walletId, params);
     }
 
     /**
