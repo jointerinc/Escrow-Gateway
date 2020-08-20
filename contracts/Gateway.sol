@@ -211,14 +211,15 @@ contract Gateway is Ownable, SafeMath {
     }
 
     /**
-     * @dev Set gateway contract address
-     * @param _admin The addresses of gateway contract.
+     * @dev Set gateway admin address
+     * @param _admin The address of gateway admin wallet.
      */
-    function setAdmin(address payable _admin) external onlyOwner {
+    function setAdmin(address _admin) external onlyOwner {
         require(_admin != address(0),"Zero address");
         admin = _admin;
     }
 
+    // Add new Liquidity channel
     function addChannel(string memory name) external onlyOwner {
         uint256 channelId = channels.length;
         channels.push();
@@ -231,6 +232,7 @@ contract Gateway is Ownable, SafeMath {
         return channels.length;
     }
 
+    // Get details of channel
     function getChannelInfo(uint256 channelId) external view 
         returns(
             string memory name,
@@ -249,12 +251,13 @@ contract Gateway is Ownable, SafeMath {
         walletsNumber = channels[channelId].channel.getWalletsNumber();
     }
 
+    // Add new wallet to selected liquidity channel
     function addWallet(uint256 channelId, string memory name, address payable wallet) external onlyOwner {
         require(wallet != address(0),"Zero address");
         channels[channelId].channel.addWallet(name, wallet);
     }
 
-    // if wallet is address(0) - wallet removed.
+    // Update wallet address on selected liquidity channel. If wallet is address(0) - wallet removed.
     function updateWallet(uint256 channelId, uint256 walletId, address payable wallet) external onlyOwner {
         channels[channelId].channel.updateWallet(walletId, wallet);
     }
