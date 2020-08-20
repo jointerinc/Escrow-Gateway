@@ -506,7 +506,6 @@ contract Escrow is AuctionRegistery {
      * @param soldValue Amount of token that was sold
      */
     function paymentFromGateway(uint256 channelId, address token, uint256 value, uint256 soldValue) external payable onlyGateway {
-        totalOnSale[channelId] = safeSub(totalOnSale[channelId], soldValue);
         uint256 len = groups.length;
         uint256[] memory groupPart = new uint256[](len);
         uint256[] memory groupOnSale = new uint256[](len);

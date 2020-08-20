@@ -270,6 +270,11 @@ contract Gateway is Ownable, SafeMath {
         emit BlockChannel(channelId, isBlock);
     }
 
+    // transfer tokens from Channel to selected wallet (ex. Exchange wallet)
+    function transferTokens(uint256 channelId, uint256 walletId, uint256 value) external onlyAdmin {
+        channels[channelId].channel.transferTokens(walletId, value);
+    }
+
     /**
      * @dev Send giveaways (received ETH/ERC20) to Escrow for splitting among participants.
      * When token sold on exchange, withdraw ETH/ERC20 to this contract address.
