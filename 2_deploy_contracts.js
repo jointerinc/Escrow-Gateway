@@ -107,9 +107,9 @@ await deployer.deploy(
   await EscrowedGovernanceInstance.setWhitelist(WhiteListContract);
   await EscrowedGovernanceInstance.setGovernanceProxy(EscrowedGovernanceProxy.address); // GovernanceProxy.address should be the Owner of most other contracts. 
   await EscrowedGovernanceInstance.updateCloseTime(); // update voting close time;
-  // I think, Company should be able to vote. (Need to ask Jude)
-  //await EscrowedGovernanceInstance.addExcluded(0,[CompanyWallet]); // addresses excluded from JNTR Circulation Supply calculation
-  //await EscrowedGovernanceInstance.manageBlockedWallet(CompanyWallet, true);  // Block Company Wallet from voting.
+  // Company should be excluded from voting.
+  await EscrowedGovernanceInstance.addExcluded(0,[CompanyWallet]); // addresses excluded from JNTR Circulation Supply calculation
+  await EscrowedGovernanceInstance.manageBlockedWallet(CompanyWallet, true);  // Block Company Wallet from voting.
 
 // settings for JNTR Escrow 
 
@@ -135,5 +135,71 @@ await deployer.deploy(
   await GatewayInstance.addChannel("SmartSwap P2C"); // group ID: 2
   await GatewayInstance.addWallet(2,"SmartSwap P2C",SmartSwapP2CContract);  // SmartSwap P2C contract address
   //await GatewayInstance.transferOwnership(EscrowedGovernanceProxy.address); // All changes may be done only via Escrowed Governance (voting)
+
+
+  // adding rules (the settings which can be changed by voting) to the Governance contract
+  const Rules = [
+    {
+        //name: "Move user from one group to another.",
+        address: Escrow.address,
+        ABI: "moveToGroup(address,uint256)",
+        majority: [50,0,0,0],
+    },
+    {
+        //name: "Add new group with rate.",
+        address: Escrow.address,
+        ABI: "addGroup(uint256)",
+        majority: [50,0,0,0],
+    },
+    {
+        //name: "Change group rate.",
+        address: Escrow.address,
+        ABI: "changeGroupRate(uint256,uint256)",
+        majority: [50,0,0,0],
+    },
+    {
+        //name: "Change group restriction.",
+        address: Escrow.address,
+        ABI: "setGroupRestriction(uint256,uint256)",
+        majority: [50,0,0,0],
+    },
+    {
+        //name: "Add new channel.",
+        address: Gateway.address,
+        ABI: "addChannel(string)",
+        majority: [50,0,0,0],
+    },
+    {
+        //name: "Add new wallet to channel.",
+        address: Gateway.address,
+        ABI: "addWallet(uint256,string,address)",
+        majority: [50,0,0,0],
+    },
+    {
+        //name: "Change Gateway admin wallet.",
+        address: Gateway.address,
+        ABI: "setAdmin(address)",
+        majority: [50,0,0,0],
+    },
+    {
+        //name: "Block selected wallet transfer to.",
+        address: Gateway.address,
+        ABI: "blockWallet(uint256,uint256,bool)",   //blockWallet(uint256 channelId, uint256 walletId, bool isBlock)
+        majority: [50,0,0,0],
+    },
+    {
+        //name: "Block selected channel transfer to any wallet.",
+        address: Gateway.address,
+        ABI: "blockChannel(uint256,bool)",  //blockChannel(uint256 channelId, bool isBlock)
+        majority: [50,0,0,0],
+    },
+    // other rules can be added later
+  ];
+
+  var i=0;
+  while (i<Rules.length){ // `for` loop does not work correctly, so I use `while`
+      EscrowedGovernanceInstance.addRule(Rules[i].address, Rules[i].majority, Rules[i].ABI); // rules for Escrowed Governance
+      i++;
+  }
 
 };
