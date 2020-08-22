@@ -95,7 +95,7 @@ await deployer.deploy(
   await GovernanceInstance.setEscrowContract(Escrow.address,0); // the Escrow contract for pre-minted Main (JNTR) token. Pre-mint all Main tokens to this address (Escrow.address)
   //await GovernanceInstance.setEscrowContract(EscrowEtn.address,1); // the Escrow contract for pre-minted ETN token, if needed.
   //await GovernanceInstance.setEscrowContract(EscrowStock.address,2); // the Escrow contract for pre-minted STOCK token, if needed.
-  await GovernanceInstance.setGovernanceProxy(GovernanceProxy.address); // GovernanceProxy.address should be the Owner of most other contracts. 
+  await GovernanceInstance.setGovernanceProxy(GovernanceProxy.address); // GovernanceProxy.address should be the Owner and authorityAddress of most other contracts. 
   await GovernanceInstance.updateCloseTime(); // update voting close time;
 
   await GovernanceInstance.addExcluded(0,[CompanyWallet,TokenVaultContract,AuctionProtectionContract,MainReserveContract]); // addresses excluded from JNTR Circulation Supply calculation
