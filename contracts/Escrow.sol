@@ -94,7 +94,8 @@ contract Escrow is AuctionRegistery {
         uint256 sellValue;  // how many token sell
         address wantToken;  // which token want to receive
         uint256 wantValue;  // the value want to receive
-        uint256 status;     // 1 - created, 2 - completed; 3 - canceled;
+        uint256 status;     // 1 - created, 2 - completed; 3 - canceled; 4 -restricted
+        address confirmatory;   // the address third person who confirm transaction, if order is restricted.
     }
 
     Order[] orders;
@@ -132,6 +133,7 @@ contract Escrow is AuctionRegistery {
     event RemoveFromSale(address indexed from, uint256 value);
     event PaymentFromGateway(uint256 indexed channelId, address indexed token, uint256 value, uint256 soldValue);
     event SellOrder(address indexed seller, address indexed buyer, uint256 value, address wantToken, uint256 wantValue, uint256 indexed orderId);
+    event RestrictedOrder(address indexed seller, address indexed buyer, uint256 value, address wantToken, uint256 wantValue, uint256 indexed orderId, address confirmatory);
     event ReceivedETH(address indexed from, uint256 value);
 
     /**
@@ -151,7 +153,7 @@ contract Escrow is AuctionRegistery {
     }
 
     constructor(address payable _companyWallet) public {
-        require(_companyWallet != address(0),"Zero address");
+        _nonZeroAddress(_companyWallet);
         companyWallet = _companyWallet;
         // Groups rete: Investors = 40%, Founders = 40%, Employees = 5%, Advisors / Providers = 5%, Company = 10%
         uint256[5] memory groupRate = [uint256(40),40,5,5,10];
@@ -160,6 +162,7 @@ contract Escrow is AuctionRegistery {
             groups[i].rate = groupRate[i];
         }
         groups[4].restriction = 1; // allow company to use Gateway supply channel (0)
+        orders.push();  // order ID starts from 1. Zero order ID means - no order
     }
 
     // Safe Math subtract function
@@ -189,7 +192,7 @@ contract Escrow is AuctionRegistery {
      * @param newAddress The address of gateway contract.
      */
     function setGatewayContract(address payable newAddress) external onlyOwner {
-        require(newAddress != address(0),"Zero address");
+        _nonZeroAddress(newAddress);
         gatewayContract = newAddress;
     }
 
@@ -199,12 +202,12 @@ contract Escrow is AuctionRegistery {
      * @param newAddress The address of governance contract.
      */
     function setGovernanceContract(address payable newAddress) external onlyOwner {
-        require(newAddress != address(0),"Zero address");
+        _nonZeroAddress(newAddress);
         governanceContract = newAddress;
     }
 
     function updateCompanyAddress(address payable newAddress) external onlyCompany {
-        require(newAddress != address(0),"Zero address");
+        _nonZeroAddress(newAddress);
         balances[newAddress] = balances[companyWallet];
         groups[4].wallets.remove(companyWallet);    // remove from company group
         inGroup[companyWallet] = 0;
@@ -333,7 +336,22 @@ contract Escrow is AuctionRegistery {
      */
     function transfer(address to, uint256 value) external returns (bool) {
         require(inGroup[to] != 0, "Wallet not added");
+        uint256 groupId = _getGroupId(msg.sender);
+        require(groups[groupId].restriction != 0,"Group is restricted");
         return _transfer(to, value);
+    }
+
+    /**
+     * @dev transfer token for a specified address into Escrow contract from restricted group
+     * @param to The address to transfer to.
+     * @param value The amount to be transferred.
+     * @param confirmatory The address of third party who have to confirm this transfer
+     */
+    function transferRestricted(address to, uint256 value, address confirmatory) external returns (bool) {
+        _nonZeroAddress(confirmatory);
+        require(inGroup[to] != 0, "Wallet not added");
+        require(msg.sender != confirmatory && to != confirmatory, "Wrong confirmatory address");
+        _restrictedOrder(value, address(0), 0, payable(to), confirmatory);   // Create restricted order where wantValue = 0.
     }
 
     /**
@@ -377,18 +395,45 @@ contract Escrow is AuctionRegistery {
 
     // Sell tokens to other user (inside Escrow contract).
     function sellToken(uint256 sellValue, address wantToken, uint256 wantValue, address payable buyer) external {
+        require(sellValue > 0, "Zero sell value");
         require(balances[msg.sender] >= sellValue, "Not enough balance");
+        require(inGroup[buyer] != 0, "Wallet not added");        
+        uint256 groupId = _getGroupId(msg.sender);
+        require(groups[groupId].restriction != 0,"Group is restricted");
         balances[msg.sender] = safeSub(balances[msg.sender], sellValue);
         uint256 orderId = orders.length;
-        orders.push(Order(msg.sender, buyer, sellValue, wantToken, wantValue, 1));
+        orders.push(Order(msg.sender, buyer, sellValue, wantToken, wantValue, 1, address(0)));
         emit SellOrder(msg.sender, buyer, sellValue, wantToken, wantValue, orderId);
+    }
+
+    // Sell tokens to other user (inside Escrow contract) from restricted group.
+    function sellTokenRestricted(uint256 sellValue, address wantToken, uint256 wantValue, address payable buyer, address confirmatory) external {
+        _nonZeroAddress(confirmatory);
+        require(inGroup[buyer] != 0, "Wallet not added");
+        require(balances[msg.sender] >= sellValue, "Not enough balance");
+        require(msg.sender != confirmatory && buyer != confirmatory, "Wrong confirmatory address");
+        _restrictedOrder(sellValue, wantToken, wantValue, buyer, confirmatory);
+    }
+
+
+    // confirm restricted order by third-party confirmatory address
+    function confirmOrder(uint256 orderId) external {
+        Order storage o = orders[orderId];
+        require(o.confirmatory == msg.sender, "Not a confirmatory");
+        if (o.wantValue == 0) { // if it's simple transfer, complete it immediately.
+            balances[o.buyer] = safeAdd(balances[o.buyer], o.sellValue);
+            o.status = 2;   // complete
+        }
+        else {
+            o.status = 1;   // remove restriction
+        }
     }
 
     // cancel sell order
     function cancelOrder(uint256 orderId) external {
         Order storage o = orders[orderId];
         require(msg.sender == o.seller || msg.sender == o.buyer, "You can't cancel");
-        require(o.status == 1, "Wrong order");
+        require(o.status == 1 || o.status == 4, "Wrong order"); // user can cancel restricted order too.
         balances[o.seller] = safeAdd(balances[o.seller], o.sellValue);
         o.status = 3;   // cancel
     }
@@ -400,33 +445,43 @@ contract Escrow is AuctionRegistery {
         uint256 sellValue,
         address wantToken,
         uint256 wantValue,
-        uint256 status)
+        uint256 status,
+        address confirmatory)
     {
         Order storage o = orders[orderId];
-        return (o.seller, o.buyer, o.sellValue, o.wantToken, o.wantValue, o.status);
+        return (o.seller, o.buyer, o.sellValue, o.wantToken, o.wantValue, o.status, o.confirmatory);
     }
 
+    // get total number of orders
     function getOrdersNumber() external view returns(uint256 number) {
         return orders.length;
     }
 
-    function getLastAvailableOrder() external view returns(
-        uint256 orderId,
-        address seller,
-        address buyer,
-        uint256 sellValue,
-        address wantToken,
-        uint256 wantValue)
+    // get the last order ID where msg.sender is buyer or seller.
+    function getLastAvailableOrder() external view returns(uint256 orderId)
     {
         uint len = orders.length;
         while(len > 0) {
-            Order storage o = orders[len-1];
-            if (o.status == 1 && (o.seller == msg.sender || o.buyer == msg.sender)) {
-                return (len-1,o.seller, o.buyer, o.sellValue, o.wantToken, o.wantValue);
-            }
             len--;
+            Order storage o = orders[len];
+            if (o.status == 1 && (o.seller == msg.sender || o.buyer == msg.sender)) {
+                return len;
+            }
         }
-        return(0,address(0),address(0),0,address(0),0); // No orders available
+        return 0; // No orders available
+    }
+
+    // get the last order ID where msg.sender is confirmatory address.
+    function getLastOrderToConfirm() external view returns(uint256 orderId) {
+        uint len = orders.length;
+        while(len > 0) {
+            len--;
+            Order storage o = orders[len];
+            if (o.status == 4 && o.confirmatory == msg.sender) {
+                return len;
+            }
+        }
+        return 0;
     }
 
     // buy selected order (ID). If buy using ERC20 token, the amount should be approved for Escrow contract.
@@ -435,12 +490,14 @@ contract Escrow is AuctionRegistery {
         Order storage o = orders[orderId];
         require(msg.sender == o.buyer, "Wrong buyer");
         require(o.status == 1, "Wrong order status");
-        if (o.wantToken == address(0)) {
-            require(msg.value >= o.wantValue, "Not enough value");
-            o.seller.transfer(msg.value);
-        }
-        else {
-            require(IERC20Token(o.wantToken).transferFrom(msg.sender, o.seller, o.wantValue), "Not enough value");
+        if (o.wantValue > 0) {
+            if (o.wantToken == address(0)) {
+                require(msg.value == o.wantValue, "Wrong value");
+                o.seller.transfer(msg.value);
+            }
+            else {
+                require(IERC20Token(o.wantToken).transferFrom(msg.sender, o.seller, o.wantValue), "Not enough value");
+            }
         }
         balances[msg.sender] = safeAdd(balances[msg.sender], o.sellValue);
         o.status = 2;   // complete
@@ -619,7 +676,7 @@ contract Escrow is AuctionRegistery {
      * @param value The amount to be transferred.
      */
     function _transfer(address to, uint256 value) internal returns (bool) {
-        require(to != address(0), "Zero address");
+        _nonZeroAddress(to);
         require(balances[msg.sender] >= value, "Not enough balance");
         balances[msg.sender] = safeSub(balances[msg.sender], value);
         balances[to] = safeAdd(balances[to], value);
@@ -627,6 +684,14 @@ contract Escrow is AuctionRegistery {
         return true;
     }
 
+    // Create restricted order which require confirmation from third-party confirmatory address. For simple transfer the wantValue = 0.
+    function _restrictedOrder(uint256 sellValue, address wantToken, uint256 wantValue, address payable buyer, address confirmatory) internal {
+        require(sellValue > 0, "Zero sell value");
+        balances[msg.sender] = safeSub(balances[msg.sender], sellValue);
+        uint256 orderId = orders.length;
+        orders.push(Order(msg.sender, buyer, sellValue, wantToken, wantValue, 4, confirmatory));  //add restricted order
+        emit RestrictedOrder(msg.sender, buyer, sellValue, wantToken, wantValue, orderId, confirmatory);
+    }
     function _getGroupId(address wallet) internal view returns(uint256 groupId) {
         groupId = inGroup[wallet];
         require(groupId > 0, "Wallet not added");
@@ -648,6 +713,10 @@ contract Escrow is AuctionRegistery {
 
     function _getChannelsNumber() internal view returns (uint256 channelsNumber) {
         return IGateway(gatewayContract).getChannelsNumber();
+    }
+
+    function _nonZeroAddress(address addr) internal pure {
+        require(addr != address(0), "Zero address");
     }
 
     // accept ETH
