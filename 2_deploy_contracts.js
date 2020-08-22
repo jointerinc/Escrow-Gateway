@@ -8,6 +8,9 @@ const GovernanceProxy = artifacts.require("GovernanceProxy"); //GovernanceProxy.
 const EscrowedGovernance = artifacts.require("Governance"); //Governance.sol
 const EscrowedGovernanceProxy = artifacts.require("GovernanceProxy"); //GovernanceProxy.sol
 
+// contract for Real Estate wallet (used as companyFundWalletAddress in Auction.sol)
+const RealEstate = artifacts.require("Realestate"); //Realestate.sol
+
 // Escrow-Gateway contracts
 const Escrow = artifacts.require("Escrow"); //Escrow.sol
 const Gateway = artifacts.require("Gateway"); //Gateway.sol
@@ -86,6 +89,16 @@ await deployer.deploy(
 
   GatewayInstance = await Gateway.deployed();
 
+// deploy Real Estate wallet contract and set GovernanceProxy.address as Owner
+
+await deployer.deploy(
+    RealEstate,
+    GovernanceProxy.address,
+    { from: ownerWallet }
+  );
+
+  RealEstateInstance = await Escrow.deployed();
+
 // settings for global Governance
 
   await GovernanceInstance.setTokenContract(MainTokenContract, 0);
@@ -143,7 +156,7 @@ await deployer.deploy(
         //name: "Move user from one group to another.",
         address: Escrow.address,
         ABI: "moveToGroup(address,uint256)",
-        majority: [50,0,0,0],
+        majority: [50,0,0,0],   // Majority percentage according tokens community [Main (JNTR), ETN, STOCK, Control (if needed)]
     },
     {
         //name: "Add new group with rate.",
