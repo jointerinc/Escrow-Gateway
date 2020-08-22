@@ -104,6 +104,8 @@ await deployer.deploy(
   await GovernanceInstance.setTokenContract(MainTokenContract, 0);
   await GovernanceInstance.setTokenContract(EtnTokenContract, 1); // if token is not deployed may be commented
   await GovernanceInstance.setTokenContract(StockTokenContract, 2); // if token is not deployed may be commented
+  //await GovernanceInstance.setTokenContract(Escrow.address, 3); // add JNTR Escrowed community to control Edge voting
+
   await GovernanceInstance.setWhitelist(WhiteListContract);
   await GovernanceInstance.setEscrowContract(Escrow.address,0); // the Escrow contract for pre-minted Main (JNTR) token. Pre-mint all Main tokens to this address (Escrow.address)
   //await GovernanceInstance.setEscrowContract(EscrowEtn.address,1); // the Escrow contract for pre-minted ETN token, if needed.
