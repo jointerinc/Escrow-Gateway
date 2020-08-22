@@ -97,7 +97,7 @@ await deployer.deploy(
     { from: ownerWallet }
   );
 
-  RealEstateInstance = await Escrow.deployed();
+  RealEstateInstance = await RealEstate.deployed();
 
 // settings for global Governance
 
