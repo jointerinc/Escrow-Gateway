@@ -104,7 +104,7 @@ await deployer.deploy(
   await GovernanceInstance.setTokenContract(MainTokenContract, 0);
   await GovernanceInstance.setTokenContract(EtnTokenContract, 1); // if token is not deployed may be commented
   await GovernanceInstance.setTokenContract(StockTokenContract, 2); // if token is not deployed may be commented
-  //await GovernanceInstance.setTokenContract(Escrow.address, 3); // add JNTR Escrowed community to control Edge voting
+  //await GovernanceInstance.setTokenContract(Escrow.address, 3); // add JNTR Escrowed community to Edge co-voting
 
   await GovernanceInstance.setWhitelist(WhiteListContract);
   await GovernanceInstance.setEscrowContract(Escrow.address,0); // the Escrow contract for pre-minted Main (JNTR) token. Pre-mint all Main tokens to this address (Escrow.address)
@@ -158,7 +158,7 @@ await deployer.deploy(
         //name: "Move user from one group to another.",
         address: Escrow.address,
         ABI: "moveToGroup(address,uint256)",
-        majority: [50,0,0,0],   // Majority percentage according tokens community [Main (JNTR), ETN, STOCK, Control (if needed)]
+        majority: [50,0,0,0],   // Majority percentage according tokens community [Main (JNTR), ETN, STOCK, JNTR co-voting with Edge (if needed)]
     },
     {
         //name: "Add new group with rate.",
