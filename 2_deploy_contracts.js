@@ -219,7 +219,7 @@ await deployer.deploy(
   }
 
   // adding rules (the settings which can be changed by voting) to the Governance contract
-  const EscrowedRules = [
+  const Rules = [
     {
         //name: "updateContractAddress in Registry",
         address: AuctionRegisty.address,    // AuctionRegisty contract address
