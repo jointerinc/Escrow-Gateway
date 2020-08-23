@@ -152,68 +152,314 @@ await deployer.deploy(
   //await GatewayInstance.transferOwnership(EscrowedGovernanceProxy.address); // All changes may be done only via Escrowed Governance (voting)
 
 
-  // adding rules (the settings which can be changed by voting) to the Governance contract
-  const Rules = [
+  // adding rules (the settings which can be changed by voting) to the Escrowed Governance contract
+  const EscrowedRules = [
     {
         //name: "Move user from one group to another.",
         address: Escrow.address,
         ABI: "moveToGroup(address,uint256)",
-        majority: [50,0,0,0],   // Majority percentage according tokens community [Main (JNTR), ETN, STOCK, JNTR co-voting with Edge (if needed)]
+        // Set Majority level according Jude direction. By default I set Absolute Majority (90%) to JNTR token community.
+        majority: [90,0,0,0],   // Majority percentage according tokens community [Main (JNTR), ETN, STOCK, JNTR co-voting with Edge (if needed)]
     },
     {
         //name: "Add new group with rate.",
         address: Escrow.address,
         ABI: "addGroup(uint256)",
-        majority: [50,0,0,0],
+        majority: [90,0,0,0],
     },
     {
         //name: "Change group rate.",
         address: Escrow.address,
         ABI: "changeGroupRate(uint256,uint256)",
-        majority: [50,0,0,0],
+        majority: [90,0,0,0],
     },
     {
         //name: "Change group restriction.",
         address: Escrow.address,
         ABI: "setGroupRestriction(uint256,uint256)",
-        majority: [50,0,0,0],
+        majority: [90,0,0,0],
     },
     {
         //name: "Add new channel.",
         address: Gateway.address,
         ABI: "addChannel(string)",
-        majority: [50,0,0,0],
+        majority: [90,0,0,0],
     },
     {
         //name: "Add new wallet to channel.",
         address: Gateway.address,
         ABI: "addWallet(uint256,string,address)",
-        majority: [50,0,0,0],
+        majority: [90,0,0,0],
     },
     {
         //name: "Change Gateway admin wallet.",
         address: Gateway.address,
         ABI: "setAdmin(address)",
-        majority: [50,0,0,0],
+        majority: [90,0,0,0],
     },
     {
         //name: "Block selected wallet transfer to.",
         address: Gateway.address,
         ABI: "blockWallet(uint256,uint256,bool)",   //blockWallet(uint256 channelId, uint256 walletId, bool isBlock)
-        majority: [50,0,0,0],
+        majority: [90,0,0,0],
     },
     {
         //name: "Block selected channel transfer to any wallet.",
         address: Gateway.address,
         ABI: "blockChannel(uint256,bool)",  //blockChannel(uint256 channelId, bool isBlock)
-        majority: [50,0,0,0],
+        majority: [90,0,0,0],
     },
     // other rules can be added later
   ];
 
   var i=0;
+  while (i<EscrowedRules.length){ // `for` loop does not work correctly, so I use `while`
+      EscrowedGovernanceInstance.addRule(EscrowedRules[i].address, EscrowedRules[i].majority, EscrowedRules[i].ABI); // rules for Escrowed Governance
+      i++;
+  }
+
+  // adding rules (the settings which can be changed by voting) to the Governance contract
+  const EscrowedRules = [
+    {
+        //name: "updateContractAddress in Registry",
+        address: AuctionRegisty.address,    // AuctionRegisty contract address
+        ABI: "updateContractAddress(bytes32,address)",
+        // Set Majority level according Jude direction. By default I set Absolute Majority (90%) to JNTR token community.
+        majority: [90,0,0,0],   // Majority percentage according tokens community [Main (JNTR), ETN, STOCK, JNTR co-voting with Edge (if needed)]
+    },
+    {
+        //name: "setGroupBonusRatio",
+        address: Auction.address, // Auction contract address
+        ABI: "setGroupBonusRatio(uint256)",
+        majority: [90,0,0,0],
+    },
+    {
+        //name: "setDownSideProtectionRatio",
+        address: Auction.address,
+        ABI: "setDownSideProtectionRatio(uint256)",
+        majority: [90,0,0,0],
+    },
+    {
+        //name: "setfundWalletRatio (9% Real Estate wallet ratio in contribution value)",
+        address: Auction.address,
+        ABI: "setfundWalletRatio(uint256)",
+        majority: [90,0,0,0],
+    },
+    {
+        //name: "Investment power",
+        address: Auction.address,
+        ABI: "setMainTokenRatio(uint256)",
+        majority: [90,0,0,0],
+    },
+    {
+        //name: "Days to defer investment power",
+        address: Auction.address,
+        ABI: "setMainTokenCheckDay(uint256)",
+        majority: [90,0,0,0],
+    },
+    {
+        //name: "Max daily investment",
+        address: Auction.address,
+        ABI: "setMaxContributionAllowed(uint256)",
+        majority: [90,0,0,0],
+    },
+    {
+        //name: "Daily investment lead by %",
+        address: Auction.address,
+        ABI: "updateIndividualBonusRatio(uint256,uint256,uint256,uint256,uint256)",
+        majority: [90,0,0,0],
+    },    
+    {
+        //name: "Set Auction tine limits",
+        address: Auction.address,
+        ABI: "changeTimings(uint256,uint256)",
+        majority: [90,0,0,0],
+    },
+    {
+        //name: "update Bancor Converter",
+        address: Liquadity.address,  // Liquadity contract address
+        ABI: "updateConverter(address)",
+        majority: [90,0,0,0],
+    },
+    {
+        //name: "Side reserve allocation",
+        address: Liquadity.address,
+        ABI: "setSideReseverRatio(uint256)",
+        majority: [90,0,0,0],
+    },
+    {
+        //name: "Mathcing contribution ratio",
+        address: Liquadity.address,
+        ABI: "setTagAlongRatio(uint256)",
+        majority: [90,0,0,0],
+    },
+    {
+        //name: "Daily Apprection Limit",
+        address: Liquadity.address,
+        ABI: "setAppreciationLimit(uint256)",
+        majority: [90,0,0,0],
+    },
+    {
+        //name: "setBaseTokenVolatiltyRatio",
+        address: Liquadity.address,
+        ABI: "setBaseTokenVolatiltyRatio(uint256)",
+        majority: [90,0,0,0],
+    },
+    {
+        //name: "setReductionStartDay",
+        address: Liquadity.address,
+        ABI: "setReductionStartDay(uint256)",
+        majority: [90,0,0,0],
+    },
+    {
+        //name: "Vault ratio",
+        address: AuctionProtection.address,  // AuctionProtection contract address
+        ABI: "setVaultRatio(uint256)",
+        majority: [90,0,0,0],
+    },
+    {
+        //name: "Days locked period",
+        address: AuctionProtection.address,
+        ABI: "setTokenLockDuration(uint256)",
+        majority: [90,0,0,0],
+    },
+    {
+        //name: "update Max Wallet per user",
+        address: WhiteList.address, // WhiteList contract address
+        ABI: "updateMaxWallet(address,uint256)",
+        majority: [90,0,0,0],
+    },
+    {
+        //name: "addMainRecivingRule",
+        address: WhiteList.address,
+        ABI: "addMainRecivingRule(uint256, uint256)",
+        majority: [90,0,0,0],
+    },
+    {
+        //name: "removeMainTransferingRules",
+        address: WhiteList.address,
+        ABI: "removeMainTransferingRules(uint256)",
+        majority: [90,0,0,0],
+    },
+    {
+        //name: "addMainTransferringRule",
+        address: WhiteList.address,
+        ABI: "addMainTransferringRule(uint256,uint256,uint256,uint256)",
+        majority: [90,0,0,0],
+    },
+    {
+        //name: "addEtnTransferringRule",
+        address: WhiteList.address,
+        ABI: "addEtnTransferringRule(uint256,uint256,uint256,uint256)",
+        majority: [90,0,0,0],
+    },
+    {
+        //name: "removeEtnTransferingRules",
+        address: WhiteList.address,
+        ABI: "removeEtnTransferingRules(uint256)",
+        majority: [90,0,0,0],
+    },
+    {
+        //name: "addEtnRecivingRule",
+        address: WhiteList.address,
+        ABI: "addEtnRecivingRule(uint256,uint256)",
+        majority: [90,0,0,0],
+    },
+    {
+        //name: "addStockTransferringRule",
+        address: WhiteList.address,
+        ABI: "addStockTransferringRule(uint256,uint256,uint256,uint256)",
+        majority: [90,0,0,0],
+    },
+    {
+        //name: "removeStockTransferingRules",
+        address: WhiteList.address,
+        ABI: "removeStockTransferingRules(uint256)",
+        majority: [90,0,0,0],
+    },
+    {
+        //name: "addStockRecivingRule",
+        address: WhiteList.address,
+        ABI: "addStockRecivingRule(uint256,uint256)",
+        majority: [90,0,0,0],
+    },
+    {
+        //name: "update HoldBack Days",
+        address: WhiteList.address,
+        ABI: "updateHoldBackDays(uint8,uint256)",
+        majority: [90,0,0,0],
+    },
+    {
+        //name: "update Maturity Days",
+        address: WhiteList.address,
+        ABI: "updateMaturityDays(uint8,uint256)",
+        majority: [90,0,0,0],
+    },
+    {
+        //name: "Absolute Majority %",
+        address: Governance.address,    // Governance contract address
+        ABI: "setAbsoluteLevel(uint256)",
+        majority: [90,0,0,0],
+    },
+    {
+        //name: "% required to Expedite voting",
+        address: Governance.address,
+        ABI: "setExpeditedLevel(uint256)",
+        majority: [90,0,0,0],
+    },
+    {
+        //name: "Add primary wallet which is disallowed for voting",
+        address: Governance.address,
+        ABI: "manageBlockedWallet(address,bool)",
+        majority: [90,0,0,0],
+    },
+    {
+        //name: "Change Majority levels for existing rule",
+        address: Governance.address,
+        ABI: "changeRuleMajority(uint256,uint8[4])",
+        majority: [90,0,0,0],
+    },
+    {
+        //name: "Change contract address for existing rule",
+        address: Governance.address,
+        ABI: "changeRuleAddress(uint256,address)",
+        majority: [90,0,0,0],
+    },
+    {
+        //name: "Absolute Majority %",
+        address: EscrowedGovernance.address,    // EscrowedGovernance contract address
+        ABI: "setAbsoluteLevel(uint256)",
+        majority: [90,0,0,0],
+    },
+    {
+        //name: "% required to Expedite voting",
+        address: EscrowedGovernance.address,
+        ABI: "setExpeditedLevel(uint256)",
+        majority: [90,0,0,0],
+    },
+    {
+        //name: "Add primary wallet which is disallowed for voting",
+        address: EscrowedGovernance.address,
+        ABI: "manageBlockedWallet(address,bool)",
+        majority: [90,0,0,0],
+    },
+    {
+        //name: "Change Majority levels for existing rule",
+        address: EscrowedGovernance.address,
+        ABI: "changeRuleMajority(uint256,uint8[4])",
+        majority: [90,0,0,0],
+    },
+    {
+        //name: "Change contract address for existing rule",
+        address: EscrowedGovernance.address,
+        ABI: "changeRuleAddress(uint256,address)",
+        majority: [90,0,0,0],
+    },
+]
+
+  i=0;
   while (i<Rules.length){ // `for` loop does not work correctly, so I use `while`
-      EscrowedGovernanceInstance.addRule(Rules[i].address, Rules[i].majority, Rules[i].ABI); // rules for Escrowed Governance
+      GovernanceInstance.addRule(Rules[i].address, Rules[i].majority, Rules[i].ABI); // rules for Escrowed Governance
       i++;
   }
 
