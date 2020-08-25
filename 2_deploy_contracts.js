@@ -12,7 +12,7 @@ const EscrowedGovernanceProxy = artifacts.require("GovernanceProxy"); //Governan
 const RealEstate = artifacts.require("Realestate"); //Realestate.sol
 
 // Escrow-Gateway contracts
-const Escrow = artifacts.require("Escrow"); //Escrow.sol
+const EscrowContract = ""; //Escrow contract address
 const Gateway = artifacts.require("Gateway"); //Gateway.sol
 
 // this address should be provided by Jude
@@ -22,8 +22,8 @@ const CEOwallet = "";   // address of CEO (Jude) wallet that should participate 
 
 // other required contract addresses
 const MainTokenContract = ""; // JNTR token contract address
-const EtnTokenContract = ""; // ETN token contract address
-const StockTokenContract = ""; // STOCK token contract address
+//const EtnTokenContract = ""; // ETN token contract address
+//const StockTokenContract = ""; // STOCK token contract address
 const AuctionRegistery = "";  // AuctionRegistery contract address (require to get addresses of SMART_SWAP_P2P and LIQUADITY)
 const WhiteListContract = ""; // const WhiteList contract address
 
@@ -34,7 +34,12 @@ const MainReserveContract = ""; //Bancor contract address which hold JNTR tokens
 const SmartSwapP2CContract = ""; // SmartSwap P2C contract address
 
 // the wallet from Auction deploy script
-const ownerWallet = "0x153d9909f3131e6a09390b33f7a67d40418c0318";
+const ownerWallet = "";
+
+const EscrowAbi = TruffleContract(require("")); // Escrow contract 
+await EscrowAbi.setProvider(web3.currentProvider);
+EscrowInstance = await EscrowAbi.at(EscrowContract);
+
 
 module.exports = async function (deployer) {
 
@@ -72,14 +77,7 @@ await deployer.deploy(
 
   EscrowedGovernanceProxyInstance = await EscrowedGovernanceProxy.deployed();
 
-// deploy Escrow and Gateway contracts for main token (JNTR)
-await deployer.deploy(
-    Escrow,
-    CompanyWallet,
-    { from: ownerWallet }
-  );
-
-  EscrowInstance = await Escrow.deployed();
+// deploy Gateway contracts for main token (JNTR)
 
   await deployer.deploy(
     Gateway,
@@ -102,12 +100,12 @@ await deployer.deploy(
 // settings for global Governance
 
   await GovernanceInstance.setTokenContract(MainTokenContract, 0);
-  await GovernanceInstance.setTokenContract(EtnTokenContract, 1); // if token is not deployed may be commented
-  await GovernanceInstance.setTokenContract(StockTokenContract, 2); // if token is not deployed may be commented
-  //await GovernanceInstance.setTokenContract(Escrow.address, 3); // add JNTR Escrowed community to Edge co-voting
+  //await GovernanceInstance.setTokenContract(EtnTokenContract, 1); // if token is not deployed may be commented
+  //await GovernanceInstance.setTokenContract(StockTokenContract, 2); // if token is not deployed may be commented
+  //await GovernanceInstance.setTokenContract(EscrowContract, 3); // add JNTR Escrowed community to Edge co-voting
 
   await GovernanceInstance.setWhitelist(WhiteListContract);
-  await GovernanceInstance.setEscrowContract(Escrow.address,0); // the Escrow contract for pre-minted Main (JNTR) token. Pre-mint all Main tokens to this address (Escrow.address)
+  await GovernanceInstance.setEscrowContract(EscrowContract,0); // the Escrow contract for pre-minted Main (JNTR) token. Pre-mint all Main tokens to this address (Escrow.address)
   //await GovernanceInstance.setEscrowContract(EscrowEtn.address,1); // the Escrow contract for pre-minted ETN token, if needed.
   //await GovernanceInstance.setEscrowContract(EscrowStock.address,2); // the Escrow contract for pre-minted STOCK token, if needed.
   await GovernanceInstance.setGovernanceProxy(GovernanceProxy.address); // GovernanceProxy.address should be the Owner and authorityAddress of most other contracts. 
@@ -118,7 +116,8 @@ await deployer.deploy(
 
 // settings for escrowed Governance
 
-  await EscrowedGovernanceInstance.setTokenContract(Escrow.address, 0); // use Escrow contract instead of Main token contract. It allow only escrowed user to vote
+  await EscrowedGovernanceInstance.setTokenContract(EscrowContract, 0); // use Escrow contract instead of Main token contract. It allow only escrowed user to vote
+//await EscrwedGovernanceInstance.setTokenContract(EscrowContract, 3); // add JNTR Escrowed community to Edge co-voting
   await EscrowedGovernanceInstance.setWhitelist(WhiteListContract);
   await EscrowedGovernanceInstance.setGovernanceProxy(EscrowedGovernanceProxy.address); // GovernanceProxy.address should be the Owner of most other contracts. 
   await EscrowedGovernanceInstance.updateCloseTime(); // update voting close time;
@@ -128,18 +127,19 @@ await deployer.deploy(
 
 // settings for JNTR Escrow 
 
-  await EscrowInstance.setTokenContract(MainTokenContract);
-  await EscrowInstance.setGatewayContract(Gateway.address);
-  await EscrowInstance.updateRegistery(AuctionRegistery); // require to get addresses of SMART_SWAP_P2P and LIQUADITY.
-  await EscrowInstance.setGovernanceContract(Governance.address); // Used to add into isInEscrow list (in global Governance contract) escrowed wallets
-  //await EscrowInstance.transferOwnership(EscrowedGovernanceProxy.address); // All changes may be done only via Escrowed Governance (voting)
-  //await EscrowInstance.init(); // call from company wallet address. Automatically transfer all pre-minted tokens to Company wallet. Can be called only once.
+  await EscrowInstance.setTokenContract(MainTokenContract,{from: ownerWallet});
+  await EscrowInstance.setGatewayContract(Gateway.address,{from: ownerWallet});
+  await EscrowInstance.updateRegistery(AuctionRegistery,{from: ownerWallet}); // require to get addresses of SMART_SWAP_P2P and LIQUADITY.
+  await EscrowInstance.setGovernanceContract(Governance.address,{from: ownerWallet}); // Used to add into isInEscrow list (in global Governance contract) escrowed wallets
+  
+  await EscrowInstance.init({from: ownerWallet}); // Automatically transfer all pre-minted tokens to Company wallet. Can be called only once.
+  await EscrowInstance.transferOwnership(EscrowedGovernanceProxy.address); // All changes may be done only via Escrowed Governance (voting)
 
 // settings for JNTR Gateway
   await GatewayInstance.setTokenContract(MainTokenContract);
-  await GatewayInstance.setEscrowContract(Escrow.address);
+  await GatewayInstance.setEscrowContract(EscrowContract);
   //await GatewayInstance.setJointerVotingContract(GovernanceProxy.address); // Require for Edge version. Voting has right to block channels or wallet
-  await GatewayInstance.setAdmin(ownerWallet);  // Should be changed to Admin wallet, that has a right to transfer token to Exchanges
+  await GatewayInstance.setAdmin(CEOwallet);  // Should be changed to Admin wallet, that has a right to transfer token to Exchanges
 
   // Add Channels and Wallets (may be done later)
   await GatewayInstance.addChannel("Gateway supply"); // group ID: 0
@@ -149,33 +149,33 @@ await deployer.deploy(
   //await GatewayInstance.addWallet(1,"Binance","0x9D76C6bDe437490d256f8B4369890eaB123B62C4"); // Deposit address in Exchange
   await GatewayInstance.addChannel("SmartSwap P2C"); // group ID: 2
   await GatewayInstance.addWallet(2,"SmartSwap P2C",SmartSwapP2CContract);  // SmartSwap P2C contract address
-  //await GatewayInstance.transferOwnership(EscrowedGovernanceProxy.address); // All changes may be done only via Escrowed Governance (voting)
+  await GatewayInstance.transferOwnership(EscrowedGovernanceProxy.address); // All changes may be done only via Escrowed Governance (voting)
 
 
   // adding rules (the settings which can be changed by voting) to the Escrowed Governance contract
   const EscrowedRules = [
     {
         //name: "Move user from one group to another.",
-        address: Escrow.address,
+        address: EscrowContract,
         ABI: "moveToGroup(address,uint256)",
         // Set Majority level according Jude direction. By default I set Absolute Majority (90%) to JNTR token community.
         majority: [90,0,0,0],   // Majority percentage according tokens community [Main (JNTR), ETN, STOCK, JNTR co-voting with Edge (if needed)]
     },
     {
         //name: "Add new group with rate.",
-        address: Escrow.address,
+        address: EscrowContract,
         ABI: "addGroup(uint256)",
         majority: [90,0,0,0],
     },
     {
         //name: "Change group rate.",
-        address: Escrow.address,
+        address: EscrowContract,
         ABI: "changeGroupRate(uint256,uint256)",
         majority: [90,0,0,0],
     },
     {
         //name: "Change group restriction.",
-        address: Escrow.address,
+        address: EscrowContract,
         ABI: "setGroupRestriction(uint256,uint256)",
         majority: [90,0,0,0],
     },
@@ -207,6 +207,36 @@ await deployer.deploy(
         //name: "Block selected channel transfer to any wallet.",
         address: Gateway.address,
         ABI: "blockChannel(uint256,bool)",  //blockChannel(uint256 channelId, bool isBlock)
+        majority: [90,0,0,0],
+    },
+    {
+        //name: "Absolute Majority %",
+        address: EscrowedGovernance.address,    // EscrowedGovernance contract address
+        ABI: "setAbsoluteLevel(uint256)",
+        majority: [90,0,0,0],
+    },
+    {
+        //name: "% required to Expedite voting",
+        address: EscrowedGovernance.address,
+        ABI: "setExpeditedLevel(uint256)",
+        majority: [90,0,0,0],
+    },
+    {
+        //name: "Add primary wallet which is disallowed for voting",
+        address: EscrowedGovernance.address,
+        ABI: "manageBlockedWallet(address,bool)",
+        majority: [90,0,0,0],
+    },
+    {
+        //name: "Change Majority levels for existing rule",
+        address: EscrowedGovernance.address,
+        ABI: "changeRuleMajority(uint256,uint8[4])",
+        majority: [90,0,0,0],
+    },
+    {
+        //name: "Change contract address for existing rule",
+        address: EscrowedGovernance.address,
+        ABI: "changeRuleAddress(uint256,address)",
         majority: [90,0,0,0],
     },
     // other rules can be added later
@@ -425,36 +455,7 @@ await deployer.deploy(
         ABI: "changeRuleAddress(uint256,address)",
         majority: [90,0,0,0],
     },
-    {
-        //name: "Absolute Majority %",
-        address: EscrowedGovernance.address,    // EscrowedGovernance contract address
-        ABI: "setAbsoluteLevel(uint256)",
-        majority: [90,0,0,0],
-    },
-    {
-        //name: "% required to Expedite voting",
-        address: EscrowedGovernance.address,
-        ABI: "setExpeditedLevel(uint256)",
-        majority: [90,0,0,0],
-    },
-    {
-        //name: "Add primary wallet which is disallowed for voting",
-        address: EscrowedGovernance.address,
-        ABI: "manageBlockedWallet(address,bool)",
-        majority: [90,0,0,0],
-    },
-    {
-        //name: "Change Majority levels for existing rule",
-        address: EscrowedGovernance.address,
-        ABI: "changeRuleMajority(uint256,uint8[4])",
-        majority: [90,0,0,0],
-    },
-    {
-        //name: "Change contract address for existing rule",
-        address: EscrowedGovernance.address,
-        ABI: "changeRuleAddress(uint256,address)",
-        majority: [90,0,0,0],
-    },
+
 ]
 
   i=0;
@@ -462,5 +463,7 @@ await deployer.deploy(
       GovernanceInstance.addRule(Rules[i].address, Rules[i].majority, Rules[i].ABI); // rules for Escrowed Governance
       i++;
   }
+await GovernanceInstance.transferOwnership(GovernanceProxy.address); // Governance become the Owner
 
+await EscrowedGovernanceInstance.transferOwnership(EscrowedGovernanceProxy.address);
 };
