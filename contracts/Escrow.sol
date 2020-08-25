@@ -230,7 +230,7 @@ contract Escrow is AuctionRegistery {
     /**
      * @dev Add all pre-minted tokens to the company wallet.
      */
-    function init() external onlyCompany {
+    function init() external onlyOwner {
         require(inGroup[companyWallet] == 0, "Already init");
         uint256 balance = tokenContract.balanceOf(address(this));
         require(balance > 0, "No pre-minted tokens");
