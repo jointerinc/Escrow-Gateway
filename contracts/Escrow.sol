@@ -30,7 +30,7 @@ interface IERC20Token {
 }
 
 interface IAuctionLiquadity {
-    function redemptionFromEscrow(IERC20Token[] calldata _path, uint256 _amount, address payable _sender) external returns (bool);
+    function redemptionFromEscrow(address[] calldata _path, uint256 _amount, address payable _sender) external returns (bool);
 }
 
 interface ISmartSwapP2P {
@@ -364,7 +364,7 @@ contract Escrow is AuctionRegistery {
     }
 
     // Redeem via BuyBack if allowed
-    function redemption(IERC20Token[] calldata path, uint256 value) external {
+    function redemption(address[] calldata path, uint256 value) external {
         require(balances[msg.sender] >= value, "Not enough balance");
         uint256 groupId = _getGroupId(msg.sender);
         require(groups[groupId].restriction & BUYBACK > 0, "BuyBack disallowed");
