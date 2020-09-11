@@ -29,7 +29,7 @@ interface IERC20Token {
     function approve(address _spender, uint256 _value) external returns (bool);
 }
 
-interface IAuctionLiquadity {
+interface IAuctionLiquidity {
     function redemptionFromEscrow(address[] calldata _path, uint256 _amount, address payable _sender) external returns (bool);
 }
 
@@ -41,12 +41,18 @@ interface IAuctionRegistery {
     function getAddressOf(bytes32 _contractName) external view returns (address payable);
 }
 
+interface ICurrencyPrices {
+    function getCurrencyPrice(address _which) external view returns (uint256);
+}
+
 contract AuctionRegistery is Ownable {
     bytes32 internal constant SMART_SWAP_P2P = "SMART_SWAP_P2P";
-    bytes32 internal constant LIQUADITY = "LIQUADITY";
+    bytes32 internal constant Liquidity = "Liquidity";
+    bytes32 internal constant CURRENCY = "CURRENCY";
     IAuctionRegistery public contractsRegistry;
-    IAuctionLiquadity public liquidityContract;
+    IAuctionLiquidity public liquidityContract;
     ISmartSwapP2P public smartswapContract;
+    ICurrencyPrices public currencyPricesContract;
 
     function updateRegistery(address _address) external onlyOwner returns (bool)
     {
@@ -68,8 +74,9 @@ contract AuctionRegistery is Ownable {
     this decision was made to save gas that occurs from calling an external view function */
 
     function _updateAddresses() internal {
-        liquidityContract = IAuctionLiquadity(getAddressOf(LIQUADITY));
+        liquidityContract = IAuctionLiquidity(getAddressOf(Liquidity));
         smartswapContract = ISmartSwapP2P(getAddressOf(SMART_SWAP_P2P));
+        currencyPricesContract = ICurrencyPrices(getAddressOf(CURRENCY));
     }
 
      function updateAddresses() external returns (bool) {
@@ -81,6 +88,7 @@ contract AuctionRegistery is Ownable {
 contract Escrow is AuctionRegistery {
     using EnumerableSet for EnumerableSet.AddressSet;
 
+    uint256 internal constant DECIMAL_NOMINATOR = 10**18;
     uint256 internal constant BUYBACK = 1 << 251;
     uint256 internal constant SMARTSWAP_P2P = 1 << 252;
     IERC20Token public tokenContract;
@@ -115,12 +123,13 @@ contract Escrow is AuctionRegistery {
         mapping(uint256 => mapping(address => Unpaid)) unpaid;  // ETH / ERC20 tokens ready to split pro-rata (ETH = address(0))
     }
 
-    // Groups ID: 0 - Investors, 1 - Founders, 2 - Employees, 3 - Advisors/Providers, 4 - Company
+    // Groups ID: 0 - Company, 1 - Investors with goal, 2 - Main group, 3 - Restricted
     Group[] groups;
     mapping(address => uint256) public inGroup;   // Wallet to Group mapping. 0 - wallet not added, 1+ - group id (1-based)
     // Liquidity Channel ID: 0 - Company 1 - SmartSwap P2C, 2 - Secondary Market (Crypto Exchanges)
     mapping(uint256 => uint256) public totalOnSale;     // total token amount on sale by channel
     mapping(address => mapping(uint256 => uint256)) public onSale;  // How many tokens the wallet want to sell (Wallet => Channel => Value)
+    mapping(address => uint256) public goals;   // The amount in USD (decimals = 9), that investor should receive before splitting liquidity with others members
 
     uint256 public totalSupply;
     mapping(address => uint256) balances;
@@ -155,13 +164,13 @@ contract Escrow is AuctionRegistery {
     constructor(address payable _companyWallet) public {
         _nonZeroAddress(_companyWallet);
         companyWallet = _companyWallet;
-        // Groups rete: Investors = 40%, Founders = 40%, Employees = 5%, Advisors / Providers = 5%, Company = 10%
-        uint256[5] memory groupRate = [uint256(40),40,5,5,10];
-        for (uint i = 0; i < 5; i++) {
+        // Groups rete: Company = 100%, Investors = 0%, Main = 0%, Restricted = 0%
+        uint256[4] memory groupRate = [uint256(100),0,0,0];
+        for (uint i = 0; i < 4; i++) {
             groups.push();
             groups[i].rate = groupRate[i];
         }
-        groups[4].restriction = 1; // allow company to use Gateway supply channel (0)
+        groups[0].restriction = 1; // allow company to use Gateway supply channel (0)
         orders.push();  // order ID starts from 1. Zero order ID means - no order
     }
 
@@ -207,9 +216,10 @@ contract Escrow is AuctionRegistery {
     }
 
     function updateCompanyAddress(address payable newAddress) external onlyCompany {
+        require(inGroup[newAddress] == 0, "Wallet already added");
         _nonZeroAddress(newAddress);
         balances[newAddress] = balances[companyWallet];
-        groups[4].wallets.remove(companyWallet);    // remove from company group
+        groups[0].wallets.remove(companyWallet);    // remove from company group
         inGroup[companyWallet] = 0;
         balances[companyWallet] = 0;
         // request number of channels from Gateway
@@ -218,11 +228,11 @@ contract Escrow is AuctionRegistery {
             if (onSale[companyWallet][i] > 0) {
                 onSale[newAddress][i] = onSale[companyWallet][i];
                 onSale[companyWallet][i] = 0;
-                groups[4].addressesOnChannel[i].add(newAddress);
-                groups[4].addressesOnChannel[i].remove(companyWallet);
+                groups[0].addressesOnChannel[i].add(newAddress);
+                groups[0].addressesOnChannel[i].remove(companyWallet);
             }
         }
-        _addPremintedWallet(newAddress, 4); // add company wallet to the company group.
+        _addPremintedWallet(newAddress, 0); // add company wallet to the company group.
         companyWallet = newAddress;
     }
 
@@ -235,7 +245,7 @@ contract Escrow is AuctionRegistery {
         uint256 balance = tokenContract.balanceOf(address(this));
         require(balance > 0, "No pre-minted tokens");
         balances[companyWallet] = balance; //Transfer all pre-minted tokens to company wallet.
-        _addPremintedWallet(companyWallet, 4); // add company wallet to the company group.
+        _addPremintedWallet(companyWallet, 0); // add company wallet to the company group.
         totalSupply = safeAdd(totalSupply, balance);
         emit Transfer(address(0), companyWallet, balance);
     }
@@ -270,25 +280,8 @@ contract Escrow is AuctionRegistery {
     
     // Move user from one group to another
     function moveToGroup(address wallet, uint256 toGroup) external onlyOwner {
-        uint256 from = _getGroupId(wallet);
-        require(from != toGroup, "Already in this group");
-        inGroup[wallet] = toGroup + 1;  // change wallet's group id (1-based)
-        // add to group wallets list
-        groups[toGroup].wallets.add(wallet);
-        // delete from previous group
-        groups[from].wallets.remove(wallet);
-        // recalculate groups OnSale
-        // request number of channels from Gateway
-        uint channels = _getChannelsNumber();
-        for (uint i = 1; i < channels; i++) {   // exclude channel 0. It allow company to wire tokens for Gateway supply
-            if (onSale[wallet][i] > 0) {
-                require(groups[from].soldUnpaid[i] == 0, "There is unpaid giveaways");
-                groups[from].onSale[i] = safeSub(groups[from].onSale[i], onSale[wallet][i]);
-                groups[toGroup].onSale[i] = safeAdd(groups[toGroup].onSale[i], onSale[wallet][i]);
-                groups[from].addressesOnChannel[i].remove(wallet);
-                groups[toGroup].addressesOnChannel[i].add(wallet);
-            }
-        }
+        require(goals[wallet] == 0, "Wallet with goal can't be moved");
+        _moveToGroup(wallet, toGroup, false);
     }
 
     function addGroup(uint256 rate) external onlyOwner {
@@ -313,7 +306,20 @@ contract Escrow is AuctionRegistery {
         return groups[groupId].addressesOnChannel[channelId]._values;
     }
 
-    function createWallet(address newWallet, uint256 groupId, uint256 value) external onlyCompany returns(bool){
+    /**
+     * @dev Create new wallet in Escrow contract
+     * @param newWallet The wallet address
+     * @param groupId The group ID. Wallet with goal can be added only in group 1
+     * @param value The amount of token transfer from company wallet to created wallet
+     * @param goal The amount in USD, that investor should receive before splitting liquidity with others members
+     * @return true when if wallet created.
+     */
+    function createWallet(address newWallet, uint256 groupId, uint256 value, uint256 goal) external onlyCompany returns(bool){
+        require(inGroup[newWallet] == 0, "Wallet already added");
+        if (goal != 0) {
+            require(groupId == 1, "Wallet with goal disallowed");
+            goals[newWallet] = goal;
+        }
         _addPremintedWallet(newWallet, groupId);
         return _transfer(newWallet, value);
     }
@@ -623,7 +629,8 @@ contract Escrow is AuctionRegistery {
 
     // Use this function to avoid OUT_OF_GAS. Gas per user about 60.000
     function splitProrata(uint256 channelId, address token, uint256 groupId) external {
-        _splitProrata(channelId, token, groupId);
+        if (groupId == 1) _splitForGoals(channelId, token, groupId);    // split among Investors with goal 
+        else _splitProrata(channelId, token, groupId);
     }
 
     // Split giveaways in each groups among participants pro-rata their orders amount.
@@ -631,25 +638,112 @@ contract Escrow is AuctionRegistery {
     function splitProrataAll(uint256 channelId, address token) external {
         uint256 len = groups.length;
         for (uint i = 0; i < len; i++) {
-            _splitProrata(channelId, token, i);
-        }   
+            if (i == 1) _splitForGoals(channelId, token, i);    // split among Investors with goal 
+            else _splitProrata(channelId, token, i);
+        }
+    }
+
+    // require to avoid 'stack too deep' compiler error
+    struct SplitValues {
+        uint256 soldValue;
+        uint256 value;
+        uint256 total;
+        uint256 soldRest;
+        uint256 valueRest;
+        uint256 userPart;
     }
 
     // Gas per user about 60.000
     function _splitProrata(uint256 channelId, address token, uint256 groupId) internal {
         Group storage g = groups[groupId];
-        uint256 soldValue = g.unpaid[channelId][token].soldValue;
-        if (soldValue == 0) return; // no unpaid tokens
-        uint256 value = g.unpaid[channelId][token].value;
-        uint256 total = g.onSale[channelId];
-        if (total == 0) return; // no tokens onSale
+        SplitValues memory v;
+        v.soldValue = g.unpaid[channelId][token].soldValue;
+        if (v.soldValue == 0) return; // no unpaid tokens
+        v.value = g.unpaid[channelId][token].value;
+        v.total = g.onSale[channelId];
+        if (v.total == 0) return; // no tokens onSale
+
+        g.onSale[channelId] = safeSub(v.total, v.soldValue);
+        g.soldUnpaid[channelId] = safeSub(g.soldUnpaid[channelId], v.soldValue);
+        delete g.unpaid[channelId][token].value;
+        delete g.unpaid[channelId][token].soldValue;
+
+        EnumerableSet.AddressSet storage sellers = g.addressesOnChannel[channelId];
+
+        v.soldRest = v.soldValue;
+        v.valueRest = v.value;
+        while (v.soldRest != 0 ) {
+            uint256 addrNum = sellers.length();
+            uint256 divider = v.total * addrNum * 2;
+            uint256 j = addrNum;
+            while (j != 0) {
+                j--;
+                address payable user = payable(sellers.at(j));
+                uint256 amount = onSale[user][channelId];
+                if (v.soldRest < 10000) v.userPart = v.soldRest;    // very small value
+                else v.userPart = v.soldValue * (amount * addrNum + v.total) / divider;
+                if (v.userPart >= amount) {
+                    v.userPart = amount;
+                    sellers.remove(user);
+                }
+                v.soldRest = safeSub(v.soldRest, v.userPart);
+                onSale[user][channelId] = safeSub(amount, v.userPart);
+                // get return amount in target ETH / ERC20
+                amount = v.userPart * v.value / v.soldValue;
+                v.valueRest = safeSub(v.valueRest, amount);
+                if (token == address(0)) {
+                    if (!user.send(amount))
+                        balancesETH[user] = amount;
+                }
+                else {
+                    IERC20Token(token).transfer(user, amount);
+                }
+            }
+            v.total = v.total + v.soldRest - v.soldValue;
+            v.soldValue = v.soldRest;
+            v.value = v.valueRest;
+        }
+    }
+
+    function _splitForGoals(uint256 channelId, address token, uint256 groupId) internal {
+        Group storage g = groups[groupId];
+        SplitValues memory v;
+        v.soldValue = g.unpaid[channelId][token].soldValue;
+        if (v.soldValue == 0) return; // no unpaid tokens
+        v.value = g.unpaid[channelId][token].value;
+        v.total = g.onSale[channelId];
+        if (v.total == 0) return; // no tokens onSale
+
         EnumerableSet.AddressSet storage sellers = g.addressesOnChannel[channelId];
         uint256 addrNum = sellers.length();
-        for (uint j = 0; j < addrNum; j++) {
+        // split among members with the goals
+        uint256 price = currencyPricesContract.getCurrencyPrice(token);
+
+        v.soldRest = v.soldValue;
+        uint256 j = addrNum;
+        while (j != 0) {
+            j--;
             address payable user = payable(sellers.at(j));
             uint256 amount = onSale[user][channelId];
-            uint256 userValue = value * amount / total;
-            onSale[user][channelId] = safeSub(amount, soldValue * amount / total);
+
+            if (v.soldRest < 10000) v.userPart = v.soldRest;    // very small value
+            else v.userPart = v.soldValue * amount / v.total;
+            if (v.userPart >= amount) {
+                v.userPart = amount;
+            }
+            v.soldRest = safeSub(v.soldRest, v.userPart);
+            onSale[user][channelId] = safeSub(amount, v.userPart);
+
+            uint256 userValue = v.userPart * v.value / v.soldValue;
+            uint256 userValueUSD = userValue * price / DECIMAL_NOMINATOR;
+            if (userValueUSD >= goals[user]) {
+                goals[user] = 0;
+                _moveToGroup(user, 2, true);  // move user with fulfilled goal to the Main group (2).
+            }
+            else {
+                goals[user] = goals[user] - userValueUSD;
+            }
+            // transfer userValue to user
             if (token == address(0)) {
                 if (!user.send(userValue))
                     balancesETH[user] = userValue;
@@ -658,8 +752,8 @@ contract Escrow is AuctionRegistery {
                 IERC20Token(token).transfer(user, userValue);
             }
         }
-        g.onSale[channelId] = safeSub(total, soldValue);
-        g.soldUnpaid[channelId] = safeSub(g.soldUnpaid[channelId], soldValue);
+        g.onSale[channelId] = safeSub(v.total, v.soldValue);
+        g.soldUnpaid[channelId] = safeSub(g.soldUnpaid[channelId], v.soldValue);
         delete g.unpaid[channelId][token].value;
         delete g.unpaid[channelId][token].soldValue;
     }
@@ -668,6 +762,29 @@ contract Escrow is AuctionRegistery {
     function withdraw() external {
         require(balancesETH[msg.sender] > 0, "No ETH");
         msg.sender.transfer(balancesETH[msg.sender]);
+    }
+
+    // Move user from one group to another
+    function _moveToGroup(address wallet, uint256 toGroup, bool allowUnpaid) internal {
+        uint256 from = _getGroupId(wallet);
+        require(from != toGroup, "Already in this group");
+        inGroup[wallet] = toGroup + 1;  // change wallet's group id (1-based)
+        // add to group wallets list
+        groups[toGroup].wallets.add(wallet);
+        // delete from previous group
+        groups[from].wallets.remove(wallet);
+        // recalculate groups OnSale
+        // request number of channels from Gateway
+        uint channels = _getChannelsNumber();
+        for (uint i = 1; i < channels; i++) {   // exclude channel 0. It allow company to wire tokens for Gateway supply
+            if (onSale[wallet][i] > 0) {
+                require(groups[from].soldUnpaid[i] == 0 || allowUnpaid, "There is unpaid giveaways");
+                groups[from].onSale[i] = safeSub(groups[from].onSale[i], onSale[wallet][i]);
+                groups[toGroup].onSale[i] = safeAdd(groups[toGroup].onSale[i], onSale[wallet][i]);
+                groups[from].addressesOnChannel[i].remove(wallet);
+                groups[toGroup].addressesOnChannel[i].add(wallet);
+            }
+        }
     }
 
     /**
