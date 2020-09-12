@@ -651,6 +651,7 @@ contract Escrow is AuctionRegistery {
         uint256 soldRest;
         uint256 valueRest;
         uint256 userPart;
+        uint256 userValue;
     }
 
     // Gas per user about 60.000
@@ -676,7 +677,7 @@ contract Escrow is AuctionRegistery {
             uint256 addrNum = sellers.length();
             uint256 divider = v.total * addrNum * 2;
             uint256 j = addrNum;
-            while (j != 0) {
+            while (j != 0 && v.soldRest != 0) {
                 j--;
                 address payable user = payable(sellers.at(j));
                 uint256 amount = onSale[user][channelId];
@@ -689,14 +690,15 @@ contract Escrow is AuctionRegistery {
                 v.soldRest = safeSub(v.soldRest, v.userPart);
                 onSale[user][channelId] = safeSub(amount, v.userPart);
                 // get return amount in target ETH / ERC20
-                amount = v.userPart * v.value / v.soldValue;
-                v.valueRest = safeSub(v.valueRest, amount);
+                if (v.soldRest != 0) v.userValue = v.userPart * v.value / v.soldValue;
+                else v.userValue = v.valueRest; // If all tokens split send the rest value
+                v.valueRest = safeSub(v.valueRest, v.userValue);
                 if (token == address(0)) {
-                    if (!user.send(amount))
-                        balancesETH[user] = amount;
+                    if (!user.send(v.userValue))
+                        balancesETH[user] = v.userValue;
                 }
                 else {
-                    IERC20Token(token).transfer(user, amount);
+                    IERC20Token(token).transfer(user, v.userValue);
                 }
             }
             v.total = v.total + v.soldRest - v.soldValue;
@@ -726,7 +728,7 @@ contract Escrow is AuctionRegistery {
             address payable user = payable(sellers.at(j));
             uint256 amount = onSale[user][channelId];
 
-            if (v.soldRest < 10000) v.userPart = v.soldRest;    // very small value
+            if (j == 0) v.userPart = v.soldRest;    // the last member get the rest
             else v.userPart = v.soldValue * amount / v.total;
             if (v.userPart >= amount) {
                 v.userPart = amount;
@@ -734,8 +736,8 @@ contract Escrow is AuctionRegistery {
             v.soldRest = safeSub(v.soldRest, v.userPart);
             onSale[user][channelId] = safeSub(amount, v.userPart);
 
-            uint256 userValue = v.userPart * v.value / v.soldValue;
-            uint256 userValueUSD = userValue * price / DECIMAL_NOMINATOR;
+            v.userValue = v.userPart * v.value / v.soldValue;
+            uint256 userValueUSD = v.userValue * price / DECIMAL_NOMINATOR;
             if (userValueUSD >= goals[user]) {
                 goals[user] = 0;
                 _moveToGroup(user, 2, true);  // move user with fulfilled goal to the Main group (2).
@@ -745,14 +747,14 @@ contract Escrow is AuctionRegistery {
             }
             // transfer userValue to user
             if (token == address(0)) {
-                if (!user.send(userValue))
-                    balancesETH[user] = userValue;
+                if (!user.send(v.userValue))
+                    balancesETH[user] = v.userValue;
             }
             else {
-                IERC20Token(token).transfer(user, userValue);
+                IERC20Token(token).transfer(user, v.userValue);
             }
         }
-        g.onSale[channelId] = safeSub(v.total, v.soldValue);
+        g.onSale[channelId] = safeSub(v.total + v.soldRest, v.soldValue);
         g.soldUnpaid[channelId] = safeSub(g.soldUnpaid[channelId], v.soldValue);
         delete g.unpaid[channelId][token].value;
         delete g.unpaid[channelId][token].soldValue;
