@@ -47,7 +47,7 @@ interface ICurrencyPrices {
 
 contract AuctionRegistery is Ownable {
     bytes32 internal constant SMART_SWAP_P2P = "SMART_SWAP_P2P";
-    bytes32 internal constant Liquidity = "Liquidity";
+    bytes32 internal constant LIQUIDITY = "LIQUIDITY";
     bytes32 internal constant CURRENCY = "CURRENCY";
     IAuctionRegistery public contractsRegistry;
     IAuctionLiquidity public liquidityContract;
@@ -74,7 +74,7 @@ contract AuctionRegistery is Ownable {
     this decision was made to save gas that occurs from calling an external view function */
 
     function _updateAddresses() internal {
-        liquidityContract = IAuctionLiquidity(getAddressOf(Liquidity));
+        liquidityContract = IAuctionLiquidity(getAddressOf(LIQUIDITY));
         smartswapContract = ISmartSwapP2P(getAddressOf(SMART_SWAP_P2P));
         currencyPricesContract = ICurrencyPrices(getAddressOf(CURRENCY));
     }
