@@ -353,7 +353,7 @@ contract Escrow is AuctionRegistery {
      * @param value The amount to be transferred.
      * @param confirmatory The address of third party who have to confirm this transfer
      */
-    function transferRestricted(address to, uint256 value, address confirmatory) external returns (bool) {
+    function transferRestricted(address to, uint256 value, address confirmatory) external {
         _nonZeroAddress(confirmatory);
         require(inGroup[to] != 0, "Wallet not added");
         require(msg.sender != confirmatory && to != confirmatory, "Wrong confirmatory address");
