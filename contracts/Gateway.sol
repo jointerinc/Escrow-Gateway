@@ -222,6 +222,7 @@ contract Gateway is Ownable, SafeMath {
     // Add new Liquidity channel
     function addChannel(string memory name) external onlyOwner {
         uint256 channelId = channels.length;
+        require(channelId < 251, "Channels limit reached");
         channels.push();
         channels[channelId].name = name;
         channels[channelId].channel = new ChannelContract(tokenContract, payable(address(escrowContract)), name);
